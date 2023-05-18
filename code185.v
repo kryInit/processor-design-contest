@@ -73,12 +73,16 @@ module m_proc14 (w_clk, w_ce, w_led);
   reg [31:0] ExMe_rslt = 0;
   reg [31:0] ExMe_rrs2 = 0;
   reg [4:0]  ExMe_rd   = 0;
+  reg [4:0]  Ex_rs1    = 0;
+  reg [4:0]  Ex_rs2    = 0;
 
   reg [31:0] MeWb_pc   = 0; // MeWb pipeline registers
   reg [31:0] MeWb_ir   = 0;
   reg [31:0] MeWb_rslt = 0;
   reg [31:0] MeWb_ldd  = 0;
   reg [4:0]  MeWb_rd   = 0;
+  reg [4:0]  MeWb_prev_rd = 0;
+  reg [31:0] Wb_prev_rslt2 = 0;
   /*********************** IF stage *********************************/
   wire [31:0] If_ir;
   m_amemory m_imem (w_clk, r_pc[13:2], 1'd0, 32'd0, If_ir);
@@ -110,16 +114,24 @@ module m_proc14 (w_clk, w_ce, w_led);
   wire Ex_SRL = (IdEx_ir[14:12]==3'b101);
   wire Ex_BEQ = ({IdEx_ir[12], Ex_op5}==6'b011000);
   wire Ex_BNE = ({IdEx_ir[12], Ex_op5}==6'b111000);
-  wire [31:0] Ex_ain = (Ex_op5==5'b01100 || Ex_op5==5'b11000) ? IdEx_rrs2 : IdEx_imm;
-  wire [31:0] Ex_rslt = (Ex_SLL) ? IdEx_rrs1 << Ex_ain[4:0] :
-                        (Ex_SRL) ? IdEx_rrs1 >> Ex_ain[4:0] : IdEx_rrs1 + Ex_ain;
-  wire Ex_taken = (Ex_BEQ & IdEx_rrs1==Ex_ain) || (Ex_BNE & IdEx_rrs1!=Ex_ain);
+
+  wire [4:0] Wb_rd = MeWb_rd;
+
+  wire [31:0] Ex_ain1 = (Ex_rs1==0) ? 0 : (Ex_rs1==ExMe_rd & Me_we) ? ExMe_rslt : Ex_rs1==MeWb_rd ? Wb_rslt2 : Ex_rs1 == MeWb_prev_rd ? Wb_prev_rslt2 : IdEx_rrs1;
+  wire [31:0] Ex_ain2 = (Ex_rs2==0) ? 0 : (Ex_rs2==ExMe_rd & Me_we) ? ExMe_rslt : Ex_rs2==MeWb_rd ? Wb_rslt2 : Ex_rs2 == MeWb_prev_rd ? Wb_prev_rslt2 : IdEx_rrs2;
+
+  wire [31:0] Ex_ain = (Ex_op5==5'b01100 || Ex_op5==5'b11000) ? Ex_ain2 : IdEx_imm;
+  wire [31:0] Ex_rslt = (Ex_SLL) ? Ex_ain1 << Ex_ain[4:0] :
+                        (Ex_SRL) ? Ex_ain1 >> Ex_ain[4:0] : Ex_ain1 + Ex_ain;
+  wire Ex_taken = (Ex_BEQ & Ex_ain1==Ex_ain) || (Ex_BNE & Ex_ain1!=Ex_ain);
   always @(posedge w_clk) #5 if(w_ce) begin
     ExMe_pc   <= IdEx_pc;
     ExMe_ir   <= IdEx_ir;
     ExMe_rslt <= Ex_rslt;
     ExMe_rrs2 <= IdEx_rrs2;
     ExMe_rd   <= IdEx_rd;
+    Ex_rs1    <= Id_rs1;
+    Ex_rs2    <= Id_rs2;
   end
   /*********************** Me stage *********************************/
   wire [4:0] Me_op5 = ExMe_ir[6:2];   
@@ -132,13 +144,17 @@ module m_proc14 (w_clk, w_ce, w_led);
      MeWb_rslt <= ExMe_rslt;
      MeWb_ldd  <= Me_ldd;
      MeWb_rd   <= ExMe_rd;
+     MeWb_prev_rd   <= MeWb_rd;
   end
   /*********************** Wb stage *********************************/
   wire [4:0] Wb_LW = (MeWb_ir[6:2]==5'b00000);
   wire [31:0] Wb_rslt2 = (Wb_LW) ? MeWb_ldd : MeWb_rslt;
   always @(posedge w_clk) #5
     if(w_ce && IfId_ir!=32'h000f0033) r_pc <= (Ex_taken) ? IdEx_tpc : r_pc+4;
-   
+  always @(posedge w_clk) #5 if(w_ce) begin
+     Wb_prev_rslt2 <= Wb_rslt2;
+  end
+
   reg [31:0] r_led = 0;
   always @(posedge w_clk) if(w_ce & MeWb_rd==30) r_led <= Wb_rslt2;
   assign w_led = r_led;
@@ -192,6 +208,7 @@ module m_regfile (w_clk, w_rr1, w_rr2, w_wr, w_we, w_wdata, w_rdata1, w_rdata2);
    output wire [31:0] w_rdata1, w_rdata2;
     
    reg [31:0] r[0:31];
+
    assign #8 w_rdata1 = (w_rr1==0) ? 0 : r[w_rr1];
    assign #8 w_rdata2 = (w_rr2==0) ? 0 : r[w_rr2];
    always @(posedge w_clk) if(w_we) r[w_wr] <= w_wdata;
