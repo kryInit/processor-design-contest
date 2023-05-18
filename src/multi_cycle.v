@@ -169,7 +169,7 @@ module m_amemory (w_clk, w_addr, w_we, w_din, w_dout); // asynchronous memory
   reg [31:0] 	     cm_ram [0:4095]; // 4K word (4096 x 32bit) memory
   always @(posedge w_clk) if (w_we) cm_ram[w_addr] <= w_din;
   assign #20 w_dout = cm_ram[w_addr];
-`include "inputs/program.txt"
+`include "../inputs/program.txt"
 endmodule
 
 /**************************************************************************/
@@ -181,7 +181,7 @@ module m_memory (w_clk, w_addr, w_we, w_din, r_dout); // synchronous memory
   reg [31:0]         cm_ram [0:4095]; // 4K word (4096 x 32bit) memory
   always @(posedge w_clk) if (w_we) cm_ram[w_addr] <= w_din;
   always @(posedge w_clk) r_dout <= cm_ram[w_addr];
-`include "inputs/program.txt"
+`include "../inputs/program.txt"
 endmodule
 
 /**************************************************************************/
