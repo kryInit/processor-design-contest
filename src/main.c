@@ -2,49 +2,6 @@
 
 
 int main() {
-//    int cmds[50] = { 0x00000033 ,0x00000033 ,0x00000a13 ,0x00300a93 ,0x00000633 ,0x00000593 ,0x40000413 ,0x40040413 ,0x00000493 ,0x00000513 ,0x00b52023 ,0x00148493 ,0x00458593 ,0x00959cb3 ,0x009cdd33 ,0x00058593 ,0x00450513 ,0x00940463 ,0xfe0410e3 ,0x40000413 ,0x40040413 ,0x00000493 ,0x00000513 ,0x00052583 ,0x00148493 ,0x00450513 ,0x00b60633 ,0x00160613 ,0xfff60613 ,0x00160613 ,0x00160613 ,0xfff60613 ,0x00160613 ,0xffe60613 ,0xfc941ae3 ,0x015d5d33 ,0x001a0a13 ,0x01140413 ,0x01240413 ,0x01340413 ,0x01440413 ,0xf75a18e3 ,0x00000033 ,0x00060f33 ,0x000f0033 ,0x00000033 ,0x00000033 ,0x00000033 ,0x00000033 ,0x00000033 };
-//
-//    for(int i=0; i<50; ++i) {
-//        printf("[ %2d ] ", i);
-//        int cmd = cmds[i];
-//        int op_code = cmd&127;
-//        int rd = (cmd>>7)&31;
-//        int funct3 = (cmd>>12)&7;
-//        int rs1 = (cmd>>15)&31;
-//        int rs2 = (cmd>>20)&31;
-//        int imm = (cmd>>20)&4095;
-//        int imm2 = (cmd>>25)&127;
-//
-//        if (op_code == 0b0010011) printf("x[%d] = x[%d] + %d;\n", rd, rs1, imm);
-//        else if (op_code == 0b0110011) {
-//            if (funct3 == 0b000)      printf("x[%d] = x[%d] + x[%d];\n", rd, rs1, rs2);
-//            else if (funct3 == 0b001) printf("x[%d] = x[%d] << x[%d];\n", rd, rs1, rs2);
-//            else if (funct3 == 0b101) printf("x[%d] = x[%d] >> x[%d];\n", rd, rs1, rs2);
-//        }
-//        else if (op_code == 0b0100011) {
-//            const int actual_imm = (imm2 << 5) + rd;
-//            printf("memory[ x[%d] + %d ] = x[%d];\n", rs1, actual_imm, rs2);
-//        }
-//        else if (op_code == 0b0000011) {
-//            printf("x[%d] = memory[ x[%d] + %d ];\n", rd, rs1, imm);
-//        }
-//        else if (op_code == 0b1100011) {
-//            if (funct3 == 0b000) {
-//                int actual_imm = (rd & 30) + ((imm2 & 63)<<5) + ((rd&1)<<11) + ((imm2&64)<<6);
-//                if (actual_imm >= 4096) actual_imm = actual_imm - 8192;
-//                printf("if ( x[%d] == x[%d] ) goto %d\n", rs1, rs2, actual_imm);
-//            } else if (funct3 == 0b001) {
-//                int actual_imm = (rd & 30) + ((imm2 & 63)<<5) + ((rd&1)<<11) + ((imm2&64)<<6);
-//                if (actual_imm >= 4096) actual_imm = actual_imm - 8192;
-//                printf("if ( x[%d] != x[%d] ) goto %d\n", rs1, rs2, actual_imm);
-//
-//            }
-//        } else printf("not found\n");
-//    }
-//
-//    return 0;
-
-
     int memory[4096] = {};
     int x[30];
 
