@@ -1,3 +1,5 @@
 .idea
 .venv
 workspace
+CMakeLists.txt
+cmake-build-debug
