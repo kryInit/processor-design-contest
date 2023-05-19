@@ -18,14 +18,20 @@ module m_top ();
   m_proc14 p (r_clk, 1'b1, w_led);
 
 //  always@(posedge r_clk) $write("%7d %08x\n", r_cnt, p.w_rslt2);
-  initial begin
-     $write("clock: r_pc     IfId_pc  IdEx_pc  ExMe_pc  MeWb_pc : ");
-     $write("t Id_rrs1  Id_rrs2  Ex_ain   Ex_rslt  Wb_rslt2 w_led\n");
-  end
-  always@(posedge r_clk) 
-    $write("%5d: %08x %08x %08x %08x %08x: %d %08x %08x %08x %08x %08x %08x\n", 
-           r_cnt, p.r_pc, p.IfId_pc, p.IdEx_pc, p.ExMe_pc, p.MeWb_pc,  
-           p.Ex_taken, p.Id_rrs1, p.Id_rrs2, p.Ex_ain, p.Ex_rslt, p.Wb_rslt2, p.w_led);
+//  initial begin
+//     $write("clock: r_pc     IfId_pc  IdEx_pc  ExMe_pc  MeWb_pc : ");
+//     $write("t Id_rrs1  Id_rrs2  Ex_ain   Ex_rslt  Wb_rslt2 w_led\n");
+//  end
+//
+//  always@(posedge r_clk)
+//    $write("%5d: %08x %08x %08x %08x %08x: %d %08x %08x %08x %08x %08x %08x\n",
+//           r_cnt, p.r_pc, p.IfId_pc, p.IdEx_pc, p.ExMe_pc, p.MeWb_pc,
+//           p.Ex_taken, p.Id_rrs1, p.Id_rrs2, p.Ex_ain, p.Ex_rslt, p.Wb_rslt2, p.w_led);
+  always@(posedge r_clk)
+    $write("%5d: %08x %08x %08x %08x %08x: %d %08x %08x %08x %08x %08x %08x\n",
+           r_cnt, p.IF.pc, p.ID.pc, p.EX.pc, p.MEM.pc, p.WB.pc,
+           p.EX.do_branch, p.ID.reg_data1, p.ID.reg_data2, p.EX.rhs_operand, p.EX.calced_value, p.WB.writing_value, p.w_led);
+
   always@(posedge r_clk) if(w_led!=0) $finish;
   initial #50000000 $finish;
 endmodule
@@ -51,113 +57,191 @@ module m_main (w_clk, w_led);
 endmodule
 */
 
+module m_IF ( clk, ce, do_branch, branch_dest_addr);
+    input wire clk, ce;
+    input wire do_branch;
+    input wire [31:0] branch_dest_addr;
+
+    reg [31:0] pc = 0;
+    wire [31:0] instr;
+
+    //                clk, addr,     we,   input, output
+    m_amemory m_imem (clk, pc[13:2], 1'd0, 32'd0, instr);
+
+
+    // update program count
+    always @(posedge clk) #5 if(ce && instr != 32'h000f0033) pc <= do_branch ? branch_dest_addr : pc+4;
+endmodule
+
+module m_ID ( clk, ce, do_branch, IF_pc, IF_instr, WB_reg_dest, WB_write_value );
+    input wire clk, ce, do_branch;
+    input wire [31:0] IF_pc, IF_instr;
+    input wire [4:0] WB_reg_dest;
+    input wire [31:0] WB_write_value;
+
+    // take over from IF
+    reg [31:0] pc = 0;
+    reg [31:0] instr = 0;
+    always @(posedge clk) #5 if(ce) begin
+        pc <= do_branch ? 0 : IF_pc;
+        instr <= do_branch ? {25'd0, 7'b0010011} : IF_instr;
+    end
+
+    // split instr
+    wire [4:0] short_opcode = instr[6:2];
+    wire is_instr_to_write_reg = short_opcode == 5'b01100 // arithmetic operation with reg
+                              || short_opcode == 5'b00100 // arithmetic operation with imm
+                              || short_opcode == 5'b00000;// store
+
+    // registers
+    wire [4:0] reg_dest     = !do_branch && is_instr_to_write_reg ? instr[11:7] : 0;
+    wire [4:0] reg_source1  = instr[19:15];
+    wire [4:0] reg_source2  = instr[24:20];
+
+    wire [31:0] imm, week_reg_data1, week_reg_data2;
+    m_immgen m_immgen0 (instr, imm);
+    m_regfile m_regs (clk, reg_source1, reg_source2, WB_reg_dest, 1'b1, WB_write_value, week_reg_data1, week_reg_data2);
+
+    wire [31:0] reg_data1 = (WB_reg_dest != 0 && WB_reg_dest == reg_source1) ? WB_write_value : week_reg_data1;
+    wire [31:0] reg_data2 = (WB_reg_dest != 0 && WB_reg_dest == reg_source2) ? WB_write_value : week_reg_data2;
+endmodule
+
+module m_EX (
+    clk, ce, ID_pc, ID_instr, ID_imm,
+    ID_reg_source1, ID_reg_source2, ID_reg_data1, ID_reg_data2, ID_reg_dest,
+    MEM_reg_dest, WB_reg_dest, MEM_calced_value, WB_writing_value
+);
+    input wire clk, ce;
+    input wire [31:0] ID_pc, ID_instr, ID_imm;
+    input wire [4:0]  ID_reg_source1, ID_reg_source2, ID_reg_dest;
+    input wire [31:0] ID_reg_data1, ID_reg_data2;
+
+    input wire [4:0]  MEM_reg_dest, WB_reg_dest;
+    input wire [31:0] MEM_calced_value, WB_writing_value;
+
+    // take over from ID
+    reg [31:0] pc = 0, instr = 0, imm = 0;
+    reg [4:0]  reg_source1 = 0, reg_source2 = 0, reg_dest = 0;
+    reg [31:0] week_reg_data1 = 0, week_reg_data2 = 0;
+
+    always @(posedge clk) #5 if(ce) begin
+        pc <= do_branch ? 0 : ID_pc;
+        instr <= do_branch ? {25'd0, 7'b0010011} : ID_instr;
+        imm <= ID_imm;
+        reg_source1 <= ID_reg_source1;
+        reg_source2 <= ID_reg_source2;
+        week_reg_data1 <= ID_reg_data1;
+        week_reg_data2 <= ID_reg_data2;
+        reg_dest  <= ID_reg_dest;
+    end
+
+    wire [4:0] short_opcode = instr[6:2];
+    wire is_sll = instr[14:12] == 3'b001;
+    wire is_srl = instr[14:12] == 3'b101;
+    wire is_beq = {instr[12], short_opcode} == 6'b011000;
+    wire is_bne = {instr[12], short_opcode} == 6'b111000;
+
+
+    wire [31:0] reg_data1 = reg_source1 == 0            ? 0
+                          : reg_source1 == MEM_reg_dest ? MEM_calced_value
+                          : reg_source1 == WB_reg_dest  ? WB_writing_value
+                          :                               week_reg_data1;
+    wire [31:0] reg_data2 = reg_source2 == 0            ? 0
+                          : reg_source2 == MEM_reg_dest ? MEM_calced_value
+                          : reg_source2 == WB_reg_dest  ? WB_writing_value
+                          :                               week_reg_data2;
+
+    wire [31:0] lhs_operand = reg_data1;
+    wire [31:0] rhs_operand = (short_opcode==5'b01100 || short_opcode==5'b11000) ? reg_data2 : imm;
+
+    wire [31:0] calced_value = (is_sll) ? lhs_operand << rhs_operand[4:0] :
+                               (is_srl) ? lhs_operand >> rhs_operand[4:0] : lhs_operand + rhs_operand;
+
+    wire do_branch = (is_beq & lhs_operand == rhs_operand) || (is_bne & lhs_operand != rhs_operand);
+    wire [31:0] branch_dest_addr = pc + imm;
+endmodule
+
+module m_MEM ( clk, ce, EX_pc, EX_instr, EX_calced_value, EX_reg_source1, EX_reg_source2, EX_reg_data2, EX_reg_dest );
+    input wire clk, ce;
+    input wire [31:0] EX_pc, EX_instr, EX_calced_value;
+    input wire [4:0]  EX_reg_source1, EX_reg_source2, EX_reg_dest;
+    input wire [31:0] EX_reg_data2;
+
+    // take over from EX
+    reg [31:0] pc = 0, instr = 0, calced_value;
+    reg [4:0]  reg_source1 = 0, reg_source2 = 0, reg_dest = 0;
+    reg [31:0] reg_data2 = 0;
+    always @(posedge clk) #5 if(ce) begin
+        pc           <= EX_pc;
+        instr        <= EX_instr;
+        calced_value <= EX_calced_value;
+        reg_source1  <= EX_reg_source1;
+        reg_source2  <= EX_reg_source2;
+        reg_data2    <= EX_reg_data2;
+        reg_dest     <= EX_reg_dest;
+    end
+
+    wire [4:0] short_opcode = instr[6:2];
+    wire is_store_instr = short_opcode == 5'b01000;
+    wire [31:0] memory_data;
+    m_amemory m_dmem (clk, calced_value[13:2], is_store_instr, reg_data2, memory_data);
+endmodule
+
+module m_WB ( clk, ce, MEM_pc, MEM_instr, MEM_calced_value, MEM_memory_data, MEM_reg_dest );
+    input wire clk, ce;
+    input wire [31:0] MEM_pc, MEM_instr, MEM_calced_value, MEM_memory_data;
+    input wire [4:0]  MEM_reg_dest;
+
+    // take over from MEM
+    reg [31:0] pc = 0, instr = 0, calced_value, memory_data;
+    reg [4:0]  reg_dest = 0;
+
+    always @(posedge clk) #5 if(ce) begin
+        pc           <= MEM_pc;
+        instr        <= MEM_instr;
+        calced_value <= MEM_calced_value;
+        memory_data  <= MEM_memory_data;
+        reg_dest     <= MEM_reg_dest;
+    end
+
+    wire [4:0] short_opcode = instr[6:2];
+
+    wire is_load_instr = short_opcode == 5'b00000;
+    wire [31:0] writing_value = is_load_instr ? memory_data : calced_value;
+endmodule
+
 /**************************************************************************/
 module m_proc14 (w_clk, w_ce, w_led);
-  input  wire w_clk, w_ce;
-  output wire [31:0] w_led;
+    input  wire w_clk, w_ce;
+    output wire [31:0] w_led;
 
-  reg [31:0] r_pc      = 0; // program counter
-  reg [31:0] IfId_pc   = 0; // IfId pipeline registers
-  reg [31:0] IfId_ir   = 0;
+//    module m_IF ( clk, do_branch, branch_dest_addr);
+    m_IF IF(w_clk, w_ce, EX.do_branch, EX.branch_dest_addr);
 
-  reg [31:0] IdEx_pc   = 0; // IdEx pipeline registers
-  reg [31:0] IdEx_ir   = 0;   
-  reg [31:0] IdEx_tpc  = 0;
-  reg [31:0] IdEx_rrs1 = 0;
-  reg [31:0] IdEx_rrs2 = 0;   
-  reg [31:0] IdEx_imm  = 0;
-  reg [4:0]  IdEx_rd   = 0;
+//    module m_ID ( clk, ce, do_branch, IF_pc, IF_instr, WB_reg_dest, WB_write_value );
+    m_ID ID(w_clk, w_ce, EX.do_branch, IF.pc, IF.instr, WB.reg_dest, WB.writing_value);
 
-  reg [31:0] ExMe_pc   = 0; // ExMe pipeline registers
-  reg [31:0] ExMe_ir   = 0;
-  reg [31:0] ExMe_rslt = 0;
-  reg [31:0] ExMe_rrs2 = 0;
-  reg [4:0]  ExMe_rd   = 0;
-  reg [4:0]  Ex_rs1    = 0;
-  reg [4:0]  Ex_rs2    = 0;
+//    module m_EX (
+//        clk, ce, ID_pc, ID_instr, ID_imm,
+//        ID_reg_source1, ID_reg_source2, ID_reg_data1, ID_reg_data2, ID_reg_dest,
+//        MEM_reg_dest, WB_reg_dest, MEM_calced_value, WB_calced_value
+//    );
+    m_EX EX(
+        w_clk, w_ce, ID.pc, ID.instr, ID.imm,
+        ID.reg_source1, ID.reg_source2, ID.reg_data1, ID.reg_data2, ID.reg_dest,
+        MEM.reg_dest, WB.reg_dest, MEM.calced_value, WB.writing_value
+    );
 
-  reg [31:0] MeWb_pc   = 0; // MeWb pipeline registers
-  reg [31:0] MeWb_ir   = 0;
-  reg [31:0] MeWb_rslt = 0;
-  reg [31:0] MeWb_ldd  = 0;
-  reg [4:0]  MeWb_rd   = 0;
-  reg [4:0]  MeWb_prev_rd = 0;
-  reg [31:0] Wb_prev_rslt2 = 0;
-  /*********************** IF stage *********************************/
-  wire [31:0] If_ir;
-  m_amemory m_imem (w_clk, r_pc[13:2], 1'd0, 32'd0, If_ir);
-  always @(posedge w_clk) #5 if(w_ce) begin
-    IfId_pc <= (Ex_taken) ? 0 : r_pc;
-    IfId_ir <= (Ex_taken) ? {25'd0, 7'b0010011} : If_ir;
-  end
-  /*********************** ID stage *********************************/
-  wire [4:0] Id_op5 = IfId_ir[6:2];
-  wire [4:0] Id_rs1 = IfId_ir[19:15];
-  wire [4:0] Id_rs2 = IfId_ir[24:20];
-  wire [4:0] Id_rd  = IfId_ir[11:7];
-  wire Id_we = (Id_op5==5'b01100 || Id_op5==5'b00100 || Id_op5==5'b00000);
-  wire [31:0] Id_imm, Id_rrs1, Id_rrs2;
-  m_immgen m_immgen0 (IfId_ir, Id_imm);
-  m_regfile m_regs (w_clk, Id_rs1, Id_rs2, MeWb_rd, 1'b1, Wb_rslt2, Id_rrs1, Id_rrs2);
-  always @(posedge w_clk) #5 if(w_ce) begin
-    IdEx_pc   <= (Ex_taken) ? 0 : IfId_pc;
-    IdEx_ir   <= (Ex_taken) ? {25'd0, 7'b0010011} : IfId_ir;
-    IdEx_tpc  <= IfId_pc + Id_imm;
-    IdEx_imm  <= Id_imm;
-    IdEx_rrs1 <= Id_rrs1;
-    IdEx_rrs2 <= Id_rrs2;
-    IdEx_rd   <= (Id_we==0 || Ex_taken) ? 0 : Id_rd; // Note
-  end
-  /*********************** Ex stage *********************************/
-  wire [4:0] Ex_op5 = IdEx_ir[6:2];
-  wire Ex_SLL = (IdEx_ir[14:12]==3'b001);
-  wire Ex_SRL = (IdEx_ir[14:12]==3'b101);
-  wire Ex_BEQ = ({IdEx_ir[12], Ex_op5}==6'b011000);
-  wire Ex_BNE = ({IdEx_ir[12], Ex_op5}==6'b111000);
+//    module M_MEM ( clk, ce, EX_pc, EX_instr, EX_calced_value, EX_reg_source1, EX_reg_source2, EX_reg_data2, EX_reg_dest );
+    m_MEM MEM(w_clk, w_ce, EX.pc, EX.instr, EX.calced_value, EX.reg_source1, EX.reg_source2, EX.reg_data2, EX.reg_dest);
 
-  wire [4:0] Wb_rd = MeWb_rd;
+//    module M_WB ( clk, ce, MEM_pc, MEM_instr, MEM_calced_value, MEM_memory_data, MEM_reg_dest );
+    m_WB WB(w_clk, w_ce, MEM.pc, MEM.instr, MEM.calced_value, MEM.memory_data, MEM.reg_dest);
 
-  wire [31:0] Ex_ain1 = (Ex_rs1==0) ? 0 : (Ex_rs1==ExMe_rd & Me_we) ? ExMe_rslt : Ex_rs1==MeWb_rd ? Wb_rslt2 : Ex_rs1 == MeWb_prev_rd ? Wb_prev_rslt2 : IdEx_rrs1;
-  wire [31:0] Ex_ain2 = (Ex_rs2==0) ? 0 : (Ex_rs2==ExMe_rd & Me_we) ? ExMe_rslt : Ex_rs2==MeWb_rd ? Wb_rslt2 : Ex_rs2 == MeWb_prev_rd ? Wb_prev_rslt2 : IdEx_rrs2;
 
-  wire [31:0] Ex_ain = (Ex_op5==5'b01100 || Ex_op5==5'b11000) ? Ex_ain2 : IdEx_imm;
-  wire [31:0] Ex_rslt = (Ex_SLL) ? Ex_ain1 << Ex_ain[4:0] :
-                        (Ex_SRL) ? Ex_ain1 >> Ex_ain[4:0] : Ex_ain1 + Ex_ain;
-  wire Ex_taken = (Ex_BEQ & Ex_ain1==Ex_ain) || (Ex_BNE & Ex_ain1!=Ex_ain);
-  always @(posedge w_clk) #5 if(w_ce) begin
-    ExMe_pc   <= IdEx_pc;
-    ExMe_ir   <= IdEx_ir;
-    ExMe_rslt <= Ex_rslt;
-    ExMe_rrs2 <= Ex_ain2;
-    ExMe_rd   <= IdEx_rd;
-    Ex_rs1    <= Id_rs1;
-    Ex_rs2    <= Id_rs2;
-  end
-  /*********************** Me stage *********************************/
-  wire [4:0] Me_op5 = ExMe_ir[6:2];   
-  wire       Me_we = (Me_op5==5'b01100 || Me_op5==5'b00100 || Me_op5==5'b00000);
-  wire [31:0] Me_ldd;
-  m_amemory m_dmem (w_clk, ExMe_rslt[13:2], (Me_op5==5'b01000), ExMe_rrs2, Me_ldd);
-  always @(posedge w_clk) #5 if(w_ce) begin
-     MeWb_pc   <= ExMe_pc;
-     MeWb_ir   <= ExMe_ir;
-     MeWb_rslt <= ExMe_rslt;
-     MeWb_ldd  <= Me_ldd;
-     MeWb_rd   <= ExMe_rd;
-     MeWb_prev_rd   <= MeWb_rd;
-  end
-  /*********************** Wb stage *********************************/
-  wire [4:0] Wb_LW = (MeWb_ir[6:2]==5'b00000);
-  wire [31:0] Wb_rslt2 = (Wb_LW) ? MeWb_ldd : MeWb_rslt;
-  always @(posedge w_clk) #5
-    if(w_ce && IfId_ir!=32'h000f0033) r_pc <= (Ex_taken) ? IdEx_tpc : r_pc+4;
-  always @(posedge w_clk) #5 if(w_ce) begin
-     Wb_prev_rslt2 <= Wb_rslt2;
-  end
-
-  reg [31:0] r_led = 0;
-  always @(posedge w_clk) if(w_ce & MeWb_rd==30) r_led <= Wb_rslt2;
-  assign w_led = r_led;
+    reg [31:0] r_led = 0;
+    always @(posedge w_clk) if(w_ce & WB.reg_dest == 30) r_led <= WB.writing_value;
+    assign w_led = r_led;
 endmodule
 
 /**************************************************************************/
@@ -169,7 +253,7 @@ module m_amemory (w_clk, w_addr, w_we, w_din, w_dout); // asynchronous memory
   reg [31:0] 	     cm_ram [0:4095]; // 4K word (4096 x 32bit) memory
   always @(posedge w_clk) if (w_we) cm_ram[w_addr] <= w_din;
   assign #20 w_dout = cm_ram[w_addr];
-`include "../inputs/program.txt" // [include]
+`include "../inputs/program6.txt" // [include]
 endmodule
 
 /**************************************************************************/
@@ -181,7 +265,7 @@ module m_memory (w_clk, w_addr, w_we, w_din, r_dout); // synchronous memory
   reg [31:0]         cm_ram [0:4095]; // 4K word (4096 x 32bit) memory
   always @(posedge w_clk) if (w_we) cm_ram[w_addr] <= w_din;
   always @(posedge w_clk) r_dout <= cm_ram[w_addr];
-`include "../inputs/program.txt" // [include]
+`include "../inputs/program6.txt" // [include]
 endmodule
 
 /**************************************************************************/
