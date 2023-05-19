@@ -17,7 +17,7 @@ module m_top ();
    
   m_proc p (r_clk, 1'b1, w_led);
 
-  always@(posedge r_clk) $write("%7d %08x\n", r_cnt, p.w_rslt2);
+  always@(posedge r_clk) #5 $write("%7d %08x\n", r_cnt, p.w_rslt2);
 //  initial $write("  clock: r_pc     w_ir     w_rrs1   w_ain    r_rslt2  r_led\n");
 //  always@(posedge r_clk) 
 //    $write("%7d: %08x %x %08x %08x %08x %08x\n", r_cnt,
