@@ -2,6 +2,7 @@ import os
 import subprocess
 from invoke import task
 from pathlib import Path
+from typing import Optional, Callable
 
 from colorama import Fore, Style
 
@@ -19,11 +20,20 @@ def override_program(target_path: Path, program_path: Path) -> None:
     with open(target_path, 'r') as f:
         lines = map(lambda line: f"""`include "{rel_path}" // [include]""" if "[include]" in line else line, f.read().splitlines())
 
-    # ファイルを書き込みモードで開き、新しい内容を書き込む
     with open(target_path, 'w') as f:
         f.write("\n".join(lines))
         f.write("\n")
 
+
+def dump_message_when_error_occurred(func: Callable[[], int], message: Optional[str] = None, chain: int = 0) -> int:
+    if chain != 0:
+        return chain
+
+    ret = func()
+    if ret != 0:
+        print(message)
+
+    return ret
 
 @task
 def build(c, target: str = default_target, program: str = default_program) -> int:
@@ -41,36 +51,57 @@ def run(c) -> int:
 
 
 @task
-def brc(c, target: str = default_target, program: str = default_program) -> None:
+def show(c, target: str = default_target, program: str = default_program, n: int = 30) -> None:
     ret = build(c, target, program)
     if ret != 0:
         exit(ret)
     ret = run(c)
     if ret != 0:
         exit(ret)
-    subprocess.run(f"cat out.txt | head -n 30", shell=True, cwd=workspace_path)
+    subprocess.run(f"cat out.txt | head -n {n}", shell=True, cwd=workspace_path)
     line_count = sum(1 for _ in open(workspace_path.joinpath('out.txt')))
     print(f"    -> line count: {line_count}")
 
 
 @task
-def test(c, target: str = default_target, program: str = default_program):
+def test(c, target: str = default_target, program: Optional[str] = None):
     target = Path(target).absolute()
-    program = Path(program).absolute()
 
-    build_return_code = build(c, target, program)
-    if build_return_code != 0:
-        exit(build_return_code)
-    run_return_code = run(c)
-    if run_return_code != 0:
-        exit(run_return_code)
+    valid_last_output_dict = {
+        "program.txt": "017fd000",
+        "program1.txt": "00000007",
+        "program2.txt": "00000040",
+        "program3.txt": "00000006",
+        "program4.txt": "00000002",
+        "program5.txt": "00000005",
+        "program6.txt": "00000005",
+    }
+    programs = [inputs_path.joinpath(f'program{"" if i == 0 else f"{i}"}.txt') for i in range(7)] if program is None else [Path(program).absolute()]
 
-    result = subprocess.run("""cat out.txt | tail -n 1 | awk '{split($NF, a, " "); if (a[length(a)] == "017fd000") exit 0; else exit 1}'""", shell=True, cwd=workspace_path)
-    succeeded = result.returncode == 0
+    for program in programs:
+        valid_last_output = valid_last_output_dict.get(program.name)
+        print(f"[{program.name: >12}] ", end="")
 
-    if succeeded:
-        line_count = sum(1 for _ in open(workspace_path.joinpath('out.txt')))
-        print(f"{Fore.GREEN}{Style.BRIGHT}Passed{Style.RESET_ALL} ✅, cycles: {line_count}")
-    else:
-        print(f"{Fore.RED}{Style.BRIGHT}Failed{Style.RESET_ALL} 🥹")
-    exit(result.returncode)
+        ret = dump_message_when_error_occurred(
+            lambda: build(c, target, program),
+            f"{Fore.RED}{Style.BRIGHT}Build Failed{Style.RESET_ALL} 🥺"
+        )
+        ret = dump_message_when_error_occurred(
+            lambda: run(c),
+            f"{Fore.RED}{Style.BRIGHT}Run Failed{Style.RESET_ALL} 🥺",
+            ret
+        )
+        ret = dump_message_when_error_occurred(
+            lambda: 1 if valid_last_output is None else 0,
+            f"{Fore.RED}{Style.BRIGHT}Test Failed{Style.RESET_ALL}: valid last output is not found",
+            ret
+        )
+        ret = dump_message_when_error_occurred(
+            lambda: subprocess.run(f"""cat out.txt | tail -n 1 | awk '{{split($NF, a, " "); if (a[length(a)] == "{valid_last_output}") exit 0; else exit 1}}'""", shell=True, cwd=workspace_path).returncode,
+            f"{Fore.RED}{Style.BRIGHT}Failed{Style.RESET_ALL} 🥺",
+            ret
+        )
+
+        if ret == 0:
+            line_count = sum(1 for _ in open(workspace_path.joinpath('out.txt')))
+            print(f"{Fore.GREEN}{Style.BRIGHT}Passed{Style.RESET_ALL} ✅, cycles: {line_count}")
