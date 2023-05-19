@@ -128,7 +128,7 @@ module m_proc14 (w_clk, w_ce, w_led);
     ExMe_pc   <= IdEx_pc;
     ExMe_ir   <= IdEx_ir;
     ExMe_rslt <= Ex_rslt;
-    ExMe_rrs2 <= IdEx_rrs2;
+    ExMe_rrs2 <= Ex_ain2;
     ExMe_rd   <= IdEx_rd;
     Ex_rs1    <= Id_rs1;
     Ex_rs2    <= Id_rs2;
