@@ -195,7 +195,7 @@ module m_MEM ( clk, ce, EX_pc, EX_instr, EX_calced_value, EX_reg_source1, EX_reg
     wire [4:0] short_opcode = instr[6:2];
     wire is_store_instr = short_opcode == 5'b01000;
     wire [31:0] memory_data;
-    m_amemory m_dmem (clk, calced_value[13:2], is_store_instr, reg_data2, memory_data);
+    m_memory m_dmem (clk, calced_value[13:2], is_store_instr, reg_data2, memory_data);
 endmodule
 
 module m_WB ( clk, ce, MEM_pc, MEM_instr, MEM_calced_value, MEM_memory_data, MEM_reg_dest );
