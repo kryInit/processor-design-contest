@@ -51,15 +51,15 @@ module m_proc14 (w_clk, w_ce, w_led);
     input  wire w_clk, w_ce;
     output wire [31:0] w_led;
 
-    m_IF IF(w_clk, w_ce, ID.do_speculative_branch, ID.branch_dest_addr, EX.do_branch, EX.branch_dest_addr);
-    m_ID ID(w_clk, w_ce, EX.do_branch, IF.pc, IF.instr, WB.reg_dest, WB.writing_value);
+    m_IF IF(w_clk, w_ce, ID.do_speculative_branch, ID.branch_dest_addr, MEM.do_branch, MEM.branch_dest_addr);
+    m_ID ID(w_clk, w_ce, MEM.do_branch, IF.pc, IF.instr, WB.reg_dest, WB.writing_value);
     m_EX EX(
-        w_clk, w_ce, ID.pc, ID.instr, ID.imm,
+        w_clk, w_ce, MEM.do_branch, ID.pc, ID.instr, ID.imm,
         ID.reg_source1, ID.reg_source2, ID.reg_data1, ID.reg_data2, ID.reg_dest,
         MEM.reg_dest, WB.reg_dest, MEM.calced_value, WB.writing_value
     );
 
-    m_MEM MEM(w_clk, w_ce, EX.pc, EX.instr, EX.calced_value, EX.reg_source1, EX.reg_source2, EX.reg_data2, EX.reg_dest);
+    m_MEM MEM(w_clk, w_ce, EX.pc, EX.instr, EX.imm, EX.calced_value, EX.reg_source1, EX.reg_source2, EX.reg_data2, EX.reg_dest, EX.lhs_operand, EX.rhs_operand );
     m_WB WB(w_clk, w_ce, MEM.pc, MEM.instr, MEM.calced_value, MEM.memory_data, MEM.reg_dest);
 
     reg [31:0] r_led = 0;
@@ -116,11 +116,11 @@ module m_ID ( clk, ce, do_branch, IF_pc, IF_instr, WB_reg_dest, WB_write_value )
 endmodule
 
 module m_EX (
-    clk, ce, ID_pc, ID_instr, ID_imm,
+    clk, ce, do_branch, ID_pc, ID_instr, ID_imm,
     ID_reg_source1, ID_reg_source2, ID_reg_data1, ID_reg_data2, ID_reg_dest,
     MEM_reg_dest, WB_reg_dest, MEM_calced_value, WB_writing_value
 );
-    input wire clk, ce;
+    input wire clk, ce, do_branch;
     input wire [31:0] ID_pc, ID_instr, ID_imm;
     input wire [4:0]  ID_reg_source1, ID_reg_source2, ID_reg_dest;
     input wire [31:0] ID_reg_data1, ID_reg_data2;
@@ -147,8 +147,6 @@ module m_EX (
     wire [4:0] short_opcode = instr[6:2];
     wire is_sll = instr[14:12] == 3'b001;
     wire is_srl = instr[14:12] == 3'b101;
-    wire is_beq = {instr[12], short_opcode} == 6'b011000;
-    wire is_bne = {instr[12], short_opcode} == 6'b111000;
 
 
     wire [31:0] reg_data1 = reg_source1 == 0            ? 0
@@ -165,32 +163,36 @@ module m_EX (
 
     wire [31:0] calced_value = (is_sll) ? lhs_operand << rhs_operand[4:0] :
                                (is_srl) ? lhs_operand >> rhs_operand[4:0] : lhs_operand + rhs_operand;
-
-    wire revert_speculative_branch = (is_bne & lhs_operand == rhs_operand);
-    wire do_branch = revert_speculative_branch || (is_beq & lhs_operand == rhs_operand);
-
-    wire [31:0] branch_dest_addr = revert_speculative_branch ? pc + 4 : pc + imm;
 endmodule
 
-module m_MEM ( clk, ce, EX_pc, EX_instr, EX_calced_value, EX_reg_source1, EX_reg_source2, EX_reg_data2, EX_reg_dest );
+module m_MEM ( clk, ce, EX_pc, EX_instr, EX_imm, EX_calced_value, EX_reg_source1, EX_reg_source2, EX_reg_data2, EX_reg_dest, EX_lhs_operand, EX_rhs_operand );
     input wire clk, ce;
-    input wire [31:0] EX_pc, EX_instr, EX_calced_value;
+    input wire [31:0] EX_pc, EX_instr, EX_imm, EX_calced_value;
     input wire [4:0]  EX_reg_source1, EX_reg_source2, EX_reg_dest;
-    input wire [31:0] EX_reg_data2;
+    input wire [31:0] EX_reg_data2, EX_lhs_operand, EX_rhs_operand;
 
     // take over from EX
-    reg [31:0] pc = 0, instr = 0, calced_value;
+    reg [31:0] pc = 0, instr = 0, imm = 0, calced_value = 0;
     reg [4:0]  reg_source1 = 0, reg_source2 = 0, reg_dest = 0;
-    reg [31:0] reg_data2 = 0;
+    reg [31:0] reg_data2 = 0, lhs_operand, rhs_operand;
     always @(posedge clk) #5 if(ce) begin
-        pc           <= EX_pc;
-        instr        <= EX_instr;
+        pc           <= do_branch ? 0 : EX_pc;
+        instr        <= do_branch ? {25'd0, 7'b0010011} : EX_instr;
+        imm          <= EX_imm;
         calced_value <= EX_calced_value;
         reg_source1  <= EX_reg_source1;
         reg_source2  <= EX_reg_source2;
         reg_data2    <= EX_reg_data2;
         reg_dest     <= EX_reg_dest;
+        lhs_operand  <= EX_lhs_operand;
+        rhs_operand  <= EX_rhs_operand;
     end
+
+    wire is_beq = {instr[12], short_opcode} == 6'b011000;
+    wire is_bne = {instr[12], short_opcode} == 6'b111000;
+    wire revert_speculative_branch = (is_bne & lhs_operand == rhs_operand);
+    wire do_branch = revert_speculative_branch || (is_beq & lhs_operand == rhs_operand);
+    wire [31:0] branch_dest_addr = revert_speculative_branch ? pc + 4 : pc + imm;
 
     wire [4:0] short_opcode = instr[6:2];
     wire is_store_instr = short_opcode == 5'b01000;
