@@ -9,8 +9,8 @@ module m_top ();
   reg r_clk=0; initial forever #50 r_clk = ~r_clk;
   wire [31:0] w_led;
 
-  initial $dumpfile("main.vcd");
-  initial $dumpvars(0, m_top);
+//  initial $dumpfile("main.vcd");
+//  initial $dumpvars(0, m_top);
 
   reg [31:0] r_cnt = 1;
   always@(posedge r_clk) r_cnt <= r_cnt + 1;
@@ -91,13 +91,11 @@ module m_IF ( clk, ce, ID_do_speculative_branch, ID_branch_dest_addr, ID_pc, EX_
     always @(posedge clk) #5 if(ce && instr != 32'h000f0033) pc <= EX_do_branch ? EX_branch_dest_addr : ID_do_speculative_branch ? ID_branch_dest_addr : do_speculative_branch ? branch_dest_addr : pc+4;
 
     // branch dest memorization
-    localparam initial_value = 5000;
-
     wire [31:0] branch_dest_addr;
-    wire do_speculative_branch = branch_dest_addr != initial_value;
+    wire do_speculative_branch = branch_dest_addr != 0;
 
     wire [11:0] addr = ID_do_speculative_branch ? ID_pc[13:2] : pc[13:2];
-    m_data_amemory data_amemory(clk, addr, ID_do_speculative_branch, ID_branch_dest_addr, branch_dest_addr, initial_value);
+    m_data_memory data_memory(clk, addr, ID_do_speculative_branch, ID_branch_dest_addr, branch_dest_addr);
 
 endmodule
 
@@ -220,7 +218,7 @@ module m_MEM ( clk, ce, EX_pc, EX_instr, EX_imm, EX_calced_value, EX_reg_source1
     wire is_store_instr = short_opcode == 5'b01000;
     wire [31:0] memory_data;
 
-    m_data_memory data_memory(clk, calced_value[13:2], is_store_instr, reg_data2, memory_data, 0);
+    m_data_memory data_memory(clk, calced_value[13:2], is_store_instr, reg_data2, memory_data);
 endmodule
 
 module m_WB ( clk, ce, MEM_pc, MEM_instr, MEM_calced_value, MEM_memory_data, MEM_reg_dest );
@@ -255,14 +253,14 @@ module m_instr_memory ( clk, addr, out );
   
   always @(posedge clk) out <= cm_ram[addr];
 
-`include "../inputs/program5.txt" // [include]
+`include "../inputs/program6.txt" // [include]
 endmodule
 
-module m_data_amemory (w_clk, w_addr, w_we, w_din, r_dout, initial_value); // synchronous memory
+module m_data_memory (w_clk, w_addr, w_we, w_din, r_dout); // synchronous memory
   input wire w_clk, w_we;
   input wire [11:0] w_addr;
   input wire [31:0] w_din;
-  output reg  [31:0] r_dout;
+  output reg  [31:0] r_dout = 0;
 
   input wire [31:0] initial_value;
 
@@ -271,28 +269,7 @@ module m_data_amemory (w_clk, w_addr, w_we, w_din, r_dout, initial_value); // sy
   integer i;
   initial begin
     for (i = 0; i <= 4096; i += 1) begin
-      cm_ram[i] = initial_value;
-    end
-  end
-
-  always @(posedge w_clk) if (w_we) cm_ram[w_addr] <= w_din;
-  always #20 r_dout <= cm_ram[w_addr];
-endmodule
-
-module m_data_memory (w_clk, w_addr, w_we, w_din, r_dout, initial_value); // synchronous memory
-  input wire w_clk, w_we;
-  input wire [11:0] w_addr;
-  input wire [31:0] w_din;
-  output reg  [31:0] r_dout;
-
-  input wire [31:0] initial_value;
-
-  reg [31:0] cm_ram [0:4095]; // 4K word (4096 x 32bit) memory
-
-  integer i;
-  initial begin
-    for (i = 0; i <= 4096; i += 1) begin
-      cm_ram[i] = initial_value;
+      cm_ram[i] = 0;
     end
   end
 
