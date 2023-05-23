@@ -6,24 +6,25 @@
 
 /***** top module for simulation *****/
 module m_top (); 
-  reg r_clk=0; initial forever #50 r_clk = ~r_clk;
-  wire [31:0] w_led;
+    reg r_clk=0; initial forever #50 r_clk = ~r_clk;
+    wire [31:0] w_led;
 
-//  initial $dumpfile("main.vcd");
-//  initial $dumpvars(0, m_top);
+    initial $dumpfile("main.vcd");
+    initial $dumpvars(0, m_top);
 
-  reg [31:0] r_cnt = 1;
-  always@(posedge r_clk) r_cnt <= r_cnt + 1;
-   
-  m_proc14 p (r_clk, 1'b1, w_led);
+    reg [31:0] r_cnt = 1;
+    always@(posedge r_clk) r_cnt <= r_cnt + 1;
 
-  always@(posedge r_clk)
-    $write("%5d: %08x %08x %08x %08x %08x: %d %08x %08x %08x %08x %08x %08x\n",
-           r_cnt, p.IF.pc, p.ID.pc, p.EX.pc, p.MEM.pc, p.WB.pc,
-           p.EX.do_branch, p.ID.reg_data1, p.ID.reg_data2, p.EX.rhs_operand, p.EX.calced_value, p.WB.writing_value, p.w_led);
+    m_proc14 p (r_clk, 1'b1, w_led);
 
-  always@(posedge r_clk) if(w_led!=0) $finish;
-  initial #50000000 $finish;
+    initial $write("r_cnt: IF.pc    ID.pc    EX.pc    MEM.pc   WB.pc   :   ID.reg_data1, 2   EX.rhs   EX.ret   WB.w_val w_led\n");
+    always@(posedge r_clk)
+        $write("%5d: %08x %08x %08x %08x %08x: %d %08x %08x %08x %08x %08x %08x\n",
+            r_cnt, p.IF.pc, p.ID.pc, p.EX.pc, p.MEM.pc, p.WB.pc,
+            p.EX.do_branch, p.ID.reg_data1, p.ID.reg_data2, p.EX.rhs_operand, p.EX.calced_value, p.WB.writing_value, p.w_led);
+
+    always@(posedge r_clk) if(w_led!=0) $finish;
+    initial #50000000 $finish;
 endmodule
 
 /***** main module for FPGA implementation *****/
@@ -94,9 +95,8 @@ module m_IF ( clk, ce, ID_do_speculative_branch, ID_branch_dest_addr, ID_pc, EX_
     wire [31:0] branch_dest_addr;
     wire do_speculative_branch = branch_dest_addr != 0;
 
-    wire [11:0] addr = ID_do_speculative_branch ? ID_pc[13:2] : pc[13:2];
+    wire [11:0] addr = ID_do_speculative_branch ? ID_pc[13:2]-12'b1 : EX_do_branch ? 0 : pc[13:2];
     m_data_memory data_memory(clk, addr, ID_do_speculative_branch, ID_branch_dest_addr, branch_dest_addr);
-
 endmodule
 
 module m_ID ( clk, ce, do_branch, IF_pc, IF_instr, IF_do_speculative_branch, WB_reg_dest, WB_write_value );
@@ -221,20 +221,19 @@ module m_MEM ( clk, ce, EX_pc, EX_instr, EX_imm, EX_calced_value, EX_reg_source1
     m_data_memory data_memory(clk, calced_value[13:2], is_store_instr, reg_data2, memory_data);
 endmodule
 
-module m_WB ( clk, ce, MEM_pc, MEM_instr, MEM_calced_value, MEM_memory_data, MEM_reg_dest );
+module m_WB ( clk, ce, MEM_pc, MEM_instr, MEM_calced_value, memory_data, MEM_reg_dest );
     input wire clk, ce;
-    input wire [31:0] MEM_pc, MEM_instr, MEM_calced_value, MEM_memory_data;
+    input wire [31:0] MEM_pc, MEM_instr, MEM_calced_value, memory_data;
     input wire [4:0]  MEM_reg_dest;
 
     // take over from MEM
-    reg [31:0] pc = 0, instr = 0, calced_value, memory_data;
+    reg [31:0] pc = 0, instr = 0, calced_value;
     reg [4:0]  reg_dest = 0;
 
     always @(posedge clk) #5 if(ce) begin
         pc           <= MEM_pc;
         instr        <= MEM_instr;
         calced_value <= MEM_calced_value;
-        memory_data  <= MEM_memory_data;
         reg_dest     <= MEM_reg_dest;
     end
 
@@ -251,9 +250,9 @@ module m_instr_memory ( clk, addr, out );
 
   reg [31:0] cm_ram [0:4095]; // 4K word (4096 x 32bit) memory
   
-  always @(posedge clk) out <= cm_ram[addr];
+  always #5 out <= cm_ram[addr];
 
-`include "../inputs/program6.txt" // [include]
+`include "../inputs/program5.txt" // [include]
 endmodule
 
 module m_data_memory (w_clk, w_addr, w_we, w_din, r_dout); // synchronous memory
@@ -262,19 +261,19 @@ module m_data_memory (w_clk, w_addr, w_we, w_din, r_dout); // synchronous memory
   input wire [31:0] w_din;
   output reg  [31:0] r_dout = 0;
 
-  input wire [31:0] initial_value;
 
   reg [31:0] cm_ram [0:4095]; // 4K word (4096 x 32bit) memory
 
   integer i;
+  input wire [31:0] initial_value;
   initial begin
     for (i = 0; i <= 4096; i += 1) begin
       cm_ram[i] = 0;
     end
   end
 
-  always @(posedge w_clk) if (w_we) cm_ram[w_addr] <= w_din;
-  always @(posedge w_clk) r_dout <= cm_ram[w_addr];
+  always @(posedge w_clk) #5 if (w_we) cm_ram[w_addr] <= w_din;
+  always @(posedge w_clk) #5 r_dout <= cm_ram[w_addr];
 endmodule
 
 module m_immgen (w_i, r_imm); // module immediate generator
