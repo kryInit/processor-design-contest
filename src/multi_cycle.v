@@ -5,12 +5,13 @@
 `default_nettype none
 
 /***** top module for simulation *****/
+// [[delete-begin --on-vivado]]
 module m_top (); 
     reg r_clk=0; initial forever #50 r_clk = ~r_clk;
     wire [31:0] w_led;
 
-    initial $dumpfile("main.vcd");
-    initial $dumpvars(0, m_top);
+    initial $dumpfile("main.vcd"); // [[delete-line --on-test]]
+    initial $dumpvars(0, m_top);   // [[delete-line --on-test]]
 
     reg [31:0] r_cnt = 1;
     always@(posedge r_clk) r_cnt <= r_cnt + 1;
@@ -26,9 +27,10 @@ module m_top ();
     always@(posedge r_clk) if(w_led!=0) $finish;
     initial #50000000 $finish;
 endmodule
+// [[delete-end --on-vivado]]
 
 /***** main module for FPGA implementation *****/
-/*
+/* [[delete-line --on-vivado]]
 module m_main (w_clk, w_led);
   input  wire w_clk;
   output wire [3:0] w_led;
@@ -46,7 +48,7 @@ module m_main (w_clk, w_led);
     r_led <= {^w_dout[31:24], ^w_dout[23:16], ^w_dout[15:8], ^w_dout[7:0]};
   assign w_led = r_led;
 endmodule
-*/
+// [[delete-line --on-vivado]] */
 
 module m_proc14 (w_clk, w_ce, w_led);
     input  wire w_clk, w_ce;
@@ -252,28 +254,29 @@ module m_instr_memory ( clk, addr, out );
   
   always #5 out <= cm_ram[addr];
 
-`include "../inputs/program5.txt" // [include]
+`include "../inputs/program.txt" // [[include-program]]
 endmodule
 
 module m_data_memory (w_clk, w_addr, w_we, w_din, r_dout); // synchronous memory
-  input wire w_clk, w_we;
-  input wire [11:0] w_addr;
-  input wire [31:0] w_din;
-  output reg  [31:0] r_dout = 0;
+    input wire w_clk, w_we;
+    input wire [11:0] w_addr;
+    input wire [31:0] w_din;
+    output reg  [31:0] r_dout = 0;
 
+    reg [31:0] cm_ram [0:4095]; // 4K word (4096 x 32bit) memory
 
-  reg [31:0] cm_ram [0:4095]; // 4K word (4096 x 32bit) memory
-
-  integer i;
-  input wire [31:0] initial_value;
-  initial begin
-    for (i = 0; i <= 4096; i += 1) begin
-      cm_ram[i] = 0;
+    // [[delete-begin --on-vivado]]
+    integer i;
+    input wire [31:0] initial_value;
+    initial begin
+        for (i = 0; i <= 4096; i += 1) begin
+            cm_ram[i] = 0;
+        end
     end
-  end
+    // [[delete-end --on-vivado]]
 
-  always @(posedge w_clk) #5 if (w_we) cm_ram[w_addr] <= w_din;
-  always @(posedge w_clk) #5 r_dout <= cm_ram[w_addr];
+    always @(posedge w_clk) #5 if (w_we) cm_ram[w_addr] <= w_din;
+    always @(posedge w_clk) #5 r_dout <= cm_ram[w_addr];
 endmodule
 
 module m_immgen (w_i, r_imm); // module immediate generator
