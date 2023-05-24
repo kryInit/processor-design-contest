@@ -22,7 +22,7 @@ module m_top ();
     always@(posedge r_clk)
         $write("%5d: %08x %08x %08x %08x %08x: %d %08x %08x %08x %08x %08x %08x\n",
             r_cnt, p.IF.pc, p.ID.pc, p.EX.pc, p.MEM.pc, p.WB.pc,
-            p.EX.do_branch, p.ID.reg_data1, p.ID.reg_data2, p.EX.rhs_operand, p.EX.calced_value, p.WB.writing_value, p.w_led);
+            p.EX.do_branch, p.ID.reg_data1, p.ID.reg_data2, p.EX.rhs_operand, p.MEM.calced_value, p.WB.writing_value, p.w_led);
 
     always@(posedge r_clk) if(w_led!=0) $finish;
     initial #50000000 $finish;
@@ -68,7 +68,7 @@ module m_proc14 (w_clk, w_ce, w_led);
     );
 
     // stage 3
-    m_MEM MEM(w_clk, w_ce, EX.pc, EX.instr, EX.imm, EX.calced_value, EX.reg_source1, EX.reg_source2, EX.reg_data2, EX.reg_dest, EX.lhs_operand, EX.rhs_operand );
+    m_MEM MEM(w_clk, w_ce, EX.pc, EX.instr, EX.imm, EX.reg_source1, EX.reg_source2, EX.reg_data2, EX.reg_dest, EX.lhs_operand, EX.rhs_operand );
 
     // stage 4
     m_WB WB(w_clk, w_ce, MEM.pc, MEM.instr, MEM.calced_value, MEM.memory_data, MEM.reg_dest);
@@ -95,7 +95,7 @@ module m_IF ( clk, ce, ID_do_speculative_branch, ID_branch_dest_addr, ID_pc, EX_
 
     // branch dest memorization
     wire [31:0] branch_dest_addr;
-    wire do_speculative_branch = branch_dest_addr != 0;
+    wire do_speculative_branch = |branch_dest_addr;
 
     wire [11:0] addr = ID_do_speculative_branch ? ID_pc[13:2]-12'b1 : EX_do_branch ? 0 : pc[13:2];
     m_data_memory data_memory(clk, addr, ID_do_speculative_branch, ID_branch_dest_addr, branch_dest_addr);
@@ -167,8 +167,6 @@ module m_EX (
     end
 
     wire [4:0] short_opcode = instr[6:2];
-    wire is_sll = instr[14:12] == 3'b001;
-    wire is_srl = instr[14:12] == 3'b101;
 
 
     wire [31:0] reg_data1 = reg_source1 == 0            ? 0
@@ -183,25 +181,22 @@ module m_EX (
     wire [31:0] lhs_operand = reg_data1;
     wire [31:0] rhs_operand = (short_opcode==5'b01100 || short_opcode==5'b11000) ? reg_data2 : imm;
 
-    wire [31:0] calced_value = (is_sll) ? lhs_operand << rhs_operand[4:0] :
-                               (is_srl) ? lhs_operand >> rhs_operand[4:0] : lhs_operand + rhs_operand;
 endmodule
 
-module m_MEM ( clk, ce, EX_pc, EX_instr, EX_imm, EX_calced_value, EX_reg_source1, EX_reg_source2, EX_reg_data2, EX_reg_dest, EX_lhs_operand, EX_rhs_operand );
+module m_MEM ( clk, ce, EX_pc, EX_instr, EX_imm, EX_reg_source1, EX_reg_source2, EX_reg_data2, EX_reg_dest, EX_lhs_operand, EX_rhs_operand );
     input wire clk, ce;
-    input wire [31:0] EX_pc, EX_instr, EX_imm, EX_calced_value;
+    input wire [31:0] EX_pc, EX_instr, EX_imm;
     input wire [4:0]  EX_reg_source1, EX_reg_source2, EX_reg_dest;
     input wire [31:0] EX_reg_data2, EX_lhs_operand, EX_rhs_operand;
 
     // take over from EX
-    reg [31:0] pc = 0, instr = 0, imm = 0, calced_value = 0;
+    reg [31:0] pc = 0, instr = 0, imm = 0;
     reg [4:0]  reg_source1 = 0, reg_source2 = 0, reg_dest = 0;
     reg [31:0] reg_data2 = 0, lhs_operand, rhs_operand;
     always @(posedge clk) #5 if(ce) begin
         pc           <= do_branch ? 0 : EX_pc;
         instr        <= do_branch ? {25'd0, 7'b0010011} : EX_instr;
         imm          <= EX_imm;
-        calced_value <= EX_calced_value;
         reg_source1  <= EX_reg_source1;
         reg_source2  <= EX_reg_source2;
         reg_data2    <= EX_reg_data2;
@@ -209,6 +204,11 @@ module m_MEM ( clk, ce, EX_pc, EX_instr, EX_imm, EX_calced_value, EX_reg_source1
         lhs_operand  <= EX_lhs_operand;
         rhs_operand  <= EX_rhs_operand;
     end
+
+    wire is_sll = instr[14:12] == 3'b001;
+    wire is_srl = instr[14:12] == 3'b101;
+    wire [31:0] calced_value = (is_sll) ? lhs_operand << rhs_operand[4:0] :
+                               (is_srl) ? lhs_operand >> rhs_operand[4:0] : lhs_operand + rhs_operand;
 
     wire is_beq = {instr[12], short_opcode} == 6'b011000;
     wire is_bne = {instr[12], short_opcode} == 6'b111000;
