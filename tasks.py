@@ -146,4 +146,4 @@ def test(c, target: str = default_target, program: Optional[str] = None):
 
         if ret == 0:
             line_count = sum(1 for _ in open(workspace_path.joinpath('out.txt')))
-            print(f"{Fore.GREEN}{Style.BRIGHT}Passed{Style.RESET_ALL} ✅, cycles: {line_count}")
+            print(f"{Fore.GREEN}{Style.BRIGHT}Passed{Style.RESET_ALL} ✅, cycles: {line_count-1}")
