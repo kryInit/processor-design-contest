@@ -18,13 +18,9 @@ module m_top ();
 
     m_proc14 p (r_clk, 1'b1, w_led);
 
-    initial $write("r_cnt: IF.pc    ID.pc    EX.pc    MEM.pc   WB.pc   :   ID.reg_data1, 2   EX.rhs   EX.ret   WB.w_val w_led\n");
-    always@(posedge r_clk)
-        $write("%5d: %08x %08x %08x %08x %08x: %d %08x %08x %08x %08x %08x %08x\n",
-            r_cnt, p.IF.pc, p.ID.pc, p.EX.pc, p.MEM.pc, p.WB.pc,
-            p.EX.do_branch, p.ID.reg_data1, p.ID.reg_data2, p.EX.rhs_operand, p.MEM.calced_value, p.WB.writing_value, p.w_led);
-
+    always@(posedge r_clk) $write("%08x\n", p.w_led);
     always@(posedge r_clk) if(w_led!=0) $finish;
+
     initial #50000000 $finish;
 endmodule
 // [[delete-end --on-vivado]]
