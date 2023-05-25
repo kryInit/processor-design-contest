@@ -97,7 +97,7 @@ module m_IF ( clk, ce, ID_do_speculative_branch, ID_branch_dest_addr, ID_pc, EX_
 
     wire [31:0] raw_branch_dest_addr;
 
-    wire [11:0] addr = ID_do_speculative_branch ? ID_pc[13:2]-12'd2 : EX_do_branch ? 0 : pc[13:2];
+    wire [11:0] addr = ID_do_speculative_branch ? ID_pc[13:2] : EX_do_branch ? 0 : pc[13:2] + 12'd2;
     m_data_memory data_memory(clk, addr, ID_do_speculative_branch, ID_branch_dest_addr, raw_branch_dest_addr);
 
     reg do_speculative_branch = 0;
