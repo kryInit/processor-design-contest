@@ -94,11 +94,18 @@ module m_IF ( clk, ce, ID_do_speculative_branch, ID_branch_dest_addr, ID_pc, EX_
     always @(posedge clk) #5 if(ce && instr != 32'h000f0033) pc <= EX_do_branch ? EX_branch_dest_addr : ID_do_speculative_branch ? ID_branch_dest_addr : do_speculative_branch ? branch_dest_addr : pc+4;
 
     // branch dest memorization
-    wire [31:0] branch_dest_addr;
-    wire do_speculative_branch = |branch_dest_addr;
 
-    wire [11:0] addr = ID_do_speculative_branch ? ID_pc[13:2]-12'b1 : EX_do_branch ? 0 : pc[13:2];
-    m_data_memory data_memory(clk, addr, ID_do_speculative_branch, ID_branch_dest_addr, branch_dest_addr);
+    wire [31:0] raw_branch_dest_addr;
+
+    wire [11:0] addr = ID_do_speculative_branch ? ID_pc[13:2]-12'd2 : EX_do_branch ? 0 : pc[13:2];
+    m_data_memory data_memory(clk, addr, ID_do_speculative_branch, ID_branch_dest_addr, raw_branch_dest_addr);
+
+    reg do_speculative_branch = 0;
+    reg [31:0] branch_dest_addr = 0;
+    always @(posedge clk) #5 if(ce) begin
+        branch_dest_addr <= raw_branch_dest_addr;
+        do_speculative_branch <= |raw_branch_dest_addr;
+    end
 endmodule
 
 module m_ID ( clk, ce, do_branch, IF_pc, IF_instr, IF_do_speculative_branch, WB_reg_dest, WB_write_value );
