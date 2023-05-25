@@ -50,14 +50,16 @@ module m_proc14 (w_clk, w_ce, w_led);
     input  wire w_clk, w_ce;
     output wire [31:0] w_led;
 
-    m_IF IF(w_clk, w_ce, ID.do_speculative_branch, ID.branch_dest_addr, ID.pc, MEM.do_branch, MEM.branch_dest_addr);
-    m_ID ID(w_clk, w_ce, MEM.do_branch, IF.pc, IF.instr, IF.do_speculative_branch, WB.reg_dest, WB.writing_value);
-    m_EX EX(
-        w_clk, w_ce, MEM.do_branch, ID.pc, ID.instr, ID.imm,
+    m_IF IF(w_clk, w_ce, ID.do_speculative_branch, ID.branch_dest_addr, ID.pc, EX1.do_branch, EX1.branch_dest_addr);
+    m_ID ID(w_clk, w_ce, EX1.do_branch, IF.pc, IF.instr, IF.do_speculative_branch, WB.reg_dest, WB.writing_value);
+    m_EX0 EX0(
+        w_clk, w_ce, EX1.do_branch, ID.pc, ID.instr, ID.imm,
         ID.reg_source1, ID.reg_source2, ID.reg_data1, ID.reg_data2, ID.reg_dest,
-        MEM.reg_dest, WB.reg_dest, MEM.calced_value, WB.writing_value
+        EX1.reg_dest, MEM.reg_dest, WB.reg_dest, EX1.calced_value, MEM.calced_value, WB.writing_value
     );
-    m_MEM MEM(w_clk, w_ce, EX.pc, EX.instr, EX.imm, EX.reg_source1, EX.reg_source2, EX.reg_data2, EX.reg_dest, EX.lhs_operand, EX.rhs_operand );
+    m_EX1 EX1(w_clk, w_ce, EX0.pc, EX0.instr, EX0.imm, EX0.reg_source1, EX0.reg_source2, EX0.reg_data2, EX0.reg_dest, EX0.lhs_operand, EX0.rhs_operand );
+    m_MEM MEM(w_clk, w_ce, EX1.pc, EX1.instr, EX1.reg_data2, EX1.reg_dest, EX1.calced_value);
+
     m_WB WB(w_clk, w_ce, MEM.pc, MEM.instr, MEM.calced_value, MEM.memory_data, MEM.reg_dest);
 
     reg [31:0] r_led = 0;
@@ -153,10 +155,10 @@ module m_ID ( clk, ce, do_branch, IF_pc, IF_instr, IF_do_speculative_branch, WB_
     wire [31:0] branch_dest_addr = pc + imm;
 endmodule
 
-module m_EX (
+module m_EX0 (
     clk, ce, do_branch, ID_pc, ID_instr, ID_imm,
     ID_reg_source1, ID_reg_source2, ID_reg_data1, ID_reg_data2, ID_reg_dest,
-    MEM_reg_dest, WB_reg_dest, MEM_calced_value, WB_writing_value
+    EX1_reg_dest, MEM_reg_dest, WB_reg_dest, EX1_calced_value, MEM_calced_value, WB_writing_value
 );
 /*
     1. 計算
@@ -165,9 +167,9 @@ module m_EX (
 */
     input wire clk, ce, do_branch;
     input wire [31:0] ID_pc, ID_instr, ID_imm, ID_reg_data1, ID_reg_data2;
-    input wire [4:0]  ID_reg_source1, ID_reg_source2, ID_reg_dest, MEM_reg_dest, WB_reg_dest;
+    input wire [4:0]  ID_reg_source1, ID_reg_source2, ID_reg_dest, EX1_reg_dest, MEM_reg_dest, WB_reg_dest;
 
-    input wire [31:0] MEM_calced_value, WB_writing_value;
+    input wire [31:0] EX1_calced_value, MEM_calced_value, WB_writing_value;
 
     // take over from ID
     reg [31:0] pc = 0, instr = 0, imm = 0, weak_reg_data1 = 0, weak_reg_data2 = 0;
@@ -188,10 +190,12 @@ module m_EX (
 
 
     wire [31:0] reg_data1 = reg_source1 == 0            ? 0
+                          : reg_source1 == EX1_reg_dest ? EX1_calced_value
                           : reg_source1 == MEM_reg_dest ? MEM_calced_value
                           : reg_source1 == WB_reg_dest  ? WB_writing_value
                           :                               weak_reg_data1;
     wire [31:0] reg_data2 = reg_source2 == 0            ? 0
+                          : reg_source2 == EX1_reg_dest ? EX1_calced_value
                           : reg_source2 == MEM_reg_dest ? MEM_calced_value
                           : reg_source2 == WB_reg_dest  ? WB_writing_value
                           :                               weak_reg_data2;
@@ -200,33 +204,33 @@ module m_EX (
     wire [31:0] rhs_operand = (short_opcode==5'b01100 || short_opcode==5'b11000) ? reg_data2 : imm;
 endmodule
 
-module m_MEM ( clk, ce, EX_pc, EX_instr, EX_imm, EX_reg_source1, EX_reg_source2, EX_reg_data2, EX_reg_dest, EX_lhs_operand, EX_rhs_operand );
+module m_EX1 ( clk, ce, EX0_pc, EX0_instr, EX0_imm, EX0_reg_source1, EX0_reg_source2, EX0_reg_data2, EX0_reg_dest, EX0_lhs_operand, EX0_rhs_operand );
 /*
-    1. メモリに対してのload, store
-    2. lhs, rhsを用いての計算
+    1. lhs, rhsを用いての計算
         - 本来EXステージで計算するが、クリティカルパスを短くするためここで計算
-    3. bne, beq命令を実行するか, 投機的実行をした分岐命令を戻すかどうか ( 投機的実行が失敗したかどうか ) のフラグを計算
+    2. bne, beq命令を実行するか, 投機的実行をした分岐命令を戻すかどうか ( 投機的実行が失敗したかどうか ) のフラグを計算
         - lhs, rhsを用いて分岐をするかどうかを計算
-            - 本来はEXステージで(略
 */
     input wire clk, ce;
-    input wire [31:0] EX_pc, EX_instr, EX_imm, EX_reg_data2, EX_lhs_operand, EX_rhs_operand;
-    input wire [4:0]  EX_reg_source1, EX_reg_source2, EX_reg_dest;
+    input wire [31:0] EX0_pc, EX0_instr, EX0_imm, EX0_reg_data2, EX0_lhs_operand, EX0_rhs_operand;
+    input wire [4:0]  EX0_reg_source1, EX0_reg_source2, EX0_reg_dest;
 
-    // take over from EX
+    // take over from EX0
     reg [31:0] pc = 0, instr = 0, imm = 0, reg_data2 = 0, lhs_operand = 0, rhs_operand = 0;
     reg [4:0]  reg_source1 = 0, reg_source2 = 0, reg_dest = 0;
     always @(posedge clk) #5 if(ce) begin
-        pc           <= do_branch ? 0 : EX_pc;
-        instr        <= do_branch ? {25'd0, 7'b0010011} : EX_instr;
-        imm          <= EX_imm;
-        reg_source1  <= EX_reg_source1;
-        reg_source2  <= EX_reg_source2;
-        reg_data2    <= EX_reg_data2;
-        reg_dest     <= do_branch ? 0 : EX_reg_dest;
-        lhs_operand  <= EX_lhs_operand;
-        rhs_operand  <= EX_rhs_operand;
+        pc           <= do_branch ? 0 : EX0_pc;
+        instr        <= do_branch ? {25'd0, 7'b0010011} : EX0_instr;
+        imm          <= EX0_imm;
+        reg_source1  <= EX0_reg_source1;
+        reg_source2  <= EX0_reg_source2;
+        reg_data2    <= EX0_reg_data2;
+        reg_dest     <= do_branch ? 0 : EX0_reg_dest;
+        lhs_operand  <= EX0_lhs_operand;
+        rhs_operand  <= EX0_rhs_operand;
     end
+
+    wire [4:0] short_opcode = instr[6:2];
 
     // 結果の計算
     wire is_sll = instr[14:12] == 3'b001;
@@ -240,6 +244,27 @@ module m_MEM ( clk, ce, EX_pc, EX_instr, EX_imm, EX_reg_source1, EX_reg_source2,
     wire revert_speculative_branch = (is_bne & lhs_operand == rhs_operand); // bneなのに成立した( 投機的実行の失敗 )
     wire do_branch = revert_speculative_branch || (is_beq & lhs_operand == rhs_operand);
     wire [31:0] branch_dest_addr = revert_speculative_branch ? pc + 4 : pc + imm;
+endmodule
+
+
+module m_MEM ( clk, ce, EX1_pc, EX1_instr, EX1_reg_data2, EX1_reg_dest, EX1_calced_value );
+/*
+    1. メモリに対してのload, store
+*/
+    input wire clk, ce;
+    input wire [31:0] EX1_pc, EX1_instr, EX1_reg_data2, EX1_calced_value;
+    input wire [4:0]  EX1_reg_dest;
+
+    // take over from EX1
+    reg [31:0] pc = 0, instr = 0, reg_data2 = 0, calced_value;
+    reg [4:0]  reg_dest;
+    always @(posedge clk) #5 if(ce) begin
+        pc           <= EX1_pc;
+        instr        <= EX1_instr;
+        reg_data2    <= EX1_reg_data2;
+        calced_value <= EX1_calced_value;
+        reg_dest     <= EX1_reg_dest;
+    end
 
     // メモリへのload, store
     wire [4:0] short_opcode = instr[6:2];
