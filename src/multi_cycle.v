@@ -133,12 +133,12 @@ module m_ID ( clk, ce, do_branch, IF_pc, IF_instr, IF_do_speculative_branch, WB_
     wire [4:0] reg_source1  = instr[19:15];
     wire [4:0] reg_source2  = instr[24:20];
 
-    wire [31:0] imm, week_reg_data1, week_reg_data2;
+    wire [31:0] imm, weak_reg_data1, weak_reg_data2;
     m_immgen m_immgen0 (instr, imm);
-    m_regfile m_regs (clk, reg_source1, reg_source2, WB_reg_dest, 1'b1, WB_write_value, week_reg_data1, week_reg_data2);
+    m_regfile m_regs (clk, reg_source1, reg_source2, WB_reg_dest, 1'b1, WB_write_value, weak_reg_data1, weak_reg_data2);
 
-    wire [31:0] reg_data1 = (WB_reg_dest != 0 && WB_reg_dest == reg_source1) ? WB_write_value : week_reg_data1;
-    wire [31:0] reg_data2 = (WB_reg_dest != 0 && WB_reg_dest == reg_source2) ? WB_write_value : week_reg_data2;
+    wire [31:0] reg_data1 = (WB_reg_dest != 0 && WB_reg_dest == reg_source1) ? WB_write_value : weak_reg_data1;
+    wire [31:0] reg_data2 = (WB_reg_dest != 0 && WB_reg_dest == reg_source2) ? WB_write_value : weak_reg_data2;
 
     wire do_speculative_branch = !did_speculative_branch && {instr[12], short_opcode} == 6'b111000; // == is_bne
     wire [31:0] branch_dest_addr = pc + imm;
@@ -160,7 +160,7 @@ module m_EX (
     // take over from ID
     reg [31:0] pc = 0, instr = 0, imm = 0;
     reg [4:0]  reg_source1 = 0, reg_source2 = 0, reg_dest = 0;
-    reg [31:0] week_reg_data1 = 0, week_reg_data2 = 0;
+    reg [31:0] weak_reg_data1 = 0, weak_reg_data2 = 0;
 
     always @(posedge clk) #5 if(ce) begin
         pc <= do_branch ? 0 : ID_pc;
@@ -168,8 +168,8 @@ module m_EX (
         imm <= ID_imm;
         reg_source1 <= ID_reg_source1;
         reg_source2 <= ID_reg_source2;
-        week_reg_data1 <= ID_reg_data1;
-        week_reg_data2 <= ID_reg_data2;
+        weak_reg_data1 <= ID_reg_data1;
+        weak_reg_data2 <= ID_reg_data2;
         reg_dest  <= ID_reg_dest;
     end
 
@@ -179,11 +179,11 @@ module m_EX (
     wire [31:0] reg_data1 = reg_source1 == 0            ? 0
                           : reg_source1 == MEM_reg_dest ? MEM_calced_value
                           : reg_source1 == WB_reg_dest  ? WB_writing_value
-                          :                               week_reg_data1;
+                          :                               weak_reg_data1;
     wire [31:0] reg_data2 = reg_source2 == 0            ? 0
                           : reg_source2 == MEM_reg_dest ? MEM_calced_value
                           : reg_source2 == WB_reg_dest  ? WB_writing_value
-                          :                               week_reg_data2;
+                          :                               weak_reg_data2;
 
     wire [31:0] lhs_operand = reg_data1;
     wire [31:0] rhs_operand = (short_opcode==5'b01100 || short_opcode==5'b11000) ? reg_data2 : imm;
