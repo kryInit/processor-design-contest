@@ -65,11 +65,11 @@ module m_proc14 (w_clk, w_ce, w_led);
     assign w_led = r_led;
 endmodule
 
-module m_IF ( clk, ce, ID_do_speculative_branch, ID_branch_dest_addr, ID_pc, EX_do_branch, EX_branch_dest_addr );
+module m_IF ( clk, ce, ID_do_speculative_branch, ID_branch_dest_addr, ID_pc, MEM_do_branch, MEM_branch_dest_addr );
 /*
     1. 命令のフェッチ
     2. PCの更新
-        - ID, EXステージで計算した分岐フラグがtrue: 指定された場所へ
+        - ID, MEMステージで計算した分岐フラグがtrue: 指定された場所へ
         - それ以外:  pc += 4
     3. 分岐先のメモ化
         - bne命令の分岐先をメモ化
@@ -81,15 +81,15 @@ module m_IF ( clk, ce, ID_do_speculative_branch, ID_branch_dest_addr, ID_pc, EX_
             -           0である: 何もしない
 */
     input wire clk, ce;
-    input wire ID_do_speculative_branch, EX_do_branch;
-    input wire [31:0] ID_pc, ID_branch_dest_addr, EX_branch_dest_addr;
+    input wire ID_do_speculative_branch, MEM_do_branch;
+    input wire [31:0] ID_pc, ID_branch_dest_addr, MEM_branch_dest_addr;
 
     reg [31:0] pc = 0;
     wire [31:0] instr;
     //                               addr,     read value
     m_instr_memory instr_memory(clk, pc[13:2], instr); // fetch instruction
 
-    wire [11:0] addr = ID_do_speculative_branch ? ID_pc[13:2] : EX_do_branch ? 0 : pc[13:2] + 12'd2; // regを使っていて遅延があり、それを補完するための + 12'd2
+    wire [11:0] addr = ID_do_speculative_branch ? ID_pc[13:2] : MEM_do_branch ? 0 : pc[13:2] + 12'd2; // regを使っていて遅延があり、それを補完するための + 12'd2
     wire [31:0] raw_branch_dest_addr;
     //                                   write enable,             writing value,       read value
     m_data_memory data_memory(clk, addr, ID_do_speculative_branch, ID_branch_dest_addr, raw_branch_dest_addr); // fetch memorized branch destination
@@ -102,7 +102,7 @@ module m_IF ( clk, ce, ID_do_speculative_branch, ID_branch_dest_addr, ID_pc, EX_
         do_speculative_branch <= |raw_branch_dest_addr;
 
         if (instr != 32'h000f0033) begin // 32'h000f0033はこのプロセッサにおいてのhalt命令
-            pc <= EX_do_branch             ? EX_branch_dest_addr
+            pc <= MEM_do_branch            ? MEM_branch_dest_addr
                 : ID_do_speculative_branch ? ID_branch_dest_addr
                 : do_speculative_branch    ? branch_dest_addr
                 : pc+4;
@@ -231,22 +231,25 @@ module m_MEM ( clk, ce, EX_pc, EX_instr, EX_imm, EX_reg_source1, EX_reg_source2,
     // 結果の計算
     wire is_sll = instr[14:12] == 3'b001;
     wire is_srl = instr[14:12] == 3'b101;
+    wire eq_result = lhs_operand == rhs_operand;
+    wire [31:0] add_result = lhs_operand + rhs_operand;
     wire [31:0] calced_value = (is_sll) ? lhs_operand << rhs_operand[4:0] :
-                               (is_srl) ? lhs_operand >> rhs_operand[4:0] : lhs_operand + rhs_operand;
+                               (is_srl) ? lhs_operand >> rhs_operand[4:0] : add_result;
 
     // 分岐フラグ、分岐先計算
     wire is_beq = {instr[12], short_opcode} == 6'b011000;
     wire is_bne = {instr[12], short_opcode} == 6'b111000;
-    wire revert_speculative_branch = (is_bne & lhs_operand == rhs_operand); // bneなのに成立した( 投機的実行の失敗 )
-    wire do_branch = revert_speculative_branch || (is_beq & lhs_operand == rhs_operand);
+
+    wire revert_speculative_branch = (is_bne && eq_result); // bneなのに成立した( 投機的実行の失敗 )
+    wire do_branch = revert_speculative_branch || (is_beq && eq_result);
     wire [31:0] branch_dest_addr = revert_speculative_branch ? pc + 4 : pc + imm;
 
     // メモリへのload, store
     wire [4:0] short_opcode = instr[6:2];
     wire is_store_instr = short_opcode == 5'b01000;
     wire [31:0] memory_data;
-    //                             addr,               write enable,   write value, read value
-    m_data_memory data_memory(clk, calced_value[13:2], is_store_instr, reg_data2, memory_data);
+    //                             addr,             write enable,   write value, read value
+    m_data_memory data_memory(clk, add_result[13:2], is_store_instr, reg_data2, memory_data);
 endmodule
 
 module m_WB ( clk, ce, MEM_pc, MEM_instr, MEM_calced_value, memory_data, MEM_reg_dest );
