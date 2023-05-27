@@ -70,14 +70,19 @@ def dump_message_when_error_occurred(func: Callable[[], int], message: Optional[
 
     return ret
 
+
 @task
-def build(c, target: str = default_target, program: str = default_program, is_test: bool = False, on_vivado: bool = False) -> int:
+def pre_build(c, target: str = default_target, program: str = default_program, is_test: bool = False, on_vivado: bool = False) -> None:
     target = Path(target).absolute()
     program = Path(program).absolute()
 
     shutil.copyfile(target, tmp_source_path)
     override_program(tmp_source_path, program, is_test, on_vivado)
 
+
+@task
+def build(c, target: str = default_target, program: str = default_program, is_test: bool = False, on_vivado: bool = False) -> int:
+    pre_build(c, target, program, is_test, on_vivado)
     return subprocess.run(f"iverilog {tmp_source_path}", shell=True, cwd=workspace_path).returncode
 
 
@@ -147,3 +152,11 @@ def test(c, target: str = default_target, program: Optional[str] = None):
         if ret == 0:
             line_count = sum(1 for _ in open(workspace_path.joinpath('out.txt')))
             print(f"{Fore.GREEN}{Style.BRIGHT}Passed{Style.RESET_ALL} ✅, cycles: {line_count}")
+
+@task
+def test_freq(c, freq: float):
+    pre_build(c, on_vivado=True)
+    # please write here your password
+    subprocess.run(f"""sshpass -p "" scp -P 8888 {tmp_source_path} u_ind@localhost:~/workspace/pdc/sources/source.v""", shell=True)
+    subprocess.run(f"""sshpass -p "" ssh -p 8888 u_ind@localhost "cd workspace/pdc; ./run.sh {freq}" """, shell=True)
+    subprocess.run(f"""sshpass -p "" scp -P 8888 u_ind@localhost:~/workspace/pdc/report.rpt ./""", shell=True)
