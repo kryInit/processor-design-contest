@@ -57,7 +57,7 @@ module m_proc14 (w_clk, w_ce, w_led);
         ID.reg_source1, ID.reg_source2, ID.reg_data1, ID.reg_data2, ID.reg_dest, ID.branch_dest_addr,
         MEM.reg_dest, WB.reg_dest, MEM.calced_value, WB.writing_value
     );
-    m_MEM MEM(w_clk, w_ce, EX.pc, EX.instr, EX.imm, EX.reg_source1, EX.reg_source2, EX.reg_data2, EX.reg_dest, EX.lhs_operand, EX.rhs_operand, EX.branch_dest_addr);
+    m_MEM MEM(w_clk, w_ce, EX.pc, EX.instr, EX.imm, EX.reg_data2, EX.reg_dest, EX.lhs_operand, EX.rhs_operand, EX.branch_dest_addr);
     m_WB WB(w_clk, w_ce, MEM.pc, MEM.instr, MEM.calced_value, MEM.memory_data, MEM.reg_dest);
 
     reg [31:0] r_led = 0;
@@ -201,7 +201,7 @@ module m_EX (
     wire [31:0] rhs_operand = (short_opcode==5'b01100 || short_opcode==5'b11000) ? reg_data2 : imm;
 endmodule
 
-module m_MEM ( clk, ce, EX_pc, EX_instr, EX_imm, EX_reg_source1, EX_reg_source2, EX_reg_data2, EX_reg_dest, EX_lhs_operand, EX_rhs_operand, EX_branch_dest_addr);
+module m_MEM ( clk, ce, EX_pc, EX_instr, EX_imm, EX_reg_data2, EX_reg_dest, EX_lhs_operand, EX_rhs_operand, EX_branch_dest_addr);
 /*
     1. メモリに対してのload, store
     2. lhs, rhsを用いての計算
@@ -212,17 +212,15 @@ module m_MEM ( clk, ce, EX_pc, EX_instr, EX_imm, EX_reg_source1, EX_reg_source2,
 */
     input wire clk, ce;
     input wire [31:0] EX_pc, EX_instr, EX_imm, EX_reg_data2, EX_lhs_operand, EX_rhs_operand, EX_branch_dest_addr;
-    input wire [4:0]  EX_reg_source1, EX_reg_source2, EX_reg_dest;
+    input wire [4:0]  EX_reg_dest;
 
     // take over from EX
     reg [31:0] pc = 0, instr = 0, imm = 0, reg_data2 = 0, lhs_operand = 0, rhs_operand = 0, weak_branch_dest_addr = 0;
-    reg [4:0]  reg_source1 = 0, reg_source2 = 0, reg_dest = 0;
+    reg [4:0]  reg_dest = 0;
     always @(posedge clk) #5 if(ce) begin
         pc           <= do_branch ? 0 : EX_pc;
         instr        <= do_branch ? {25'd0, 7'b0010011} : EX_instr;
         imm          <= EX_imm;
-        reg_source1  <= EX_reg_source1;
-        reg_source2  <= EX_reg_source2;
         reg_data2    <= EX_reg_data2;
         reg_dest     <= do_branch ? 0 : EX_reg_dest;
         lhs_operand  <= EX_lhs_operand;
